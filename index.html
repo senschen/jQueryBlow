@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+<head lang="zh-hans">
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="renderer" content="webkit" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <title>刮刮乐</title>
+    <style>
+        .lottery-block{
+            width: 700px;
+            height: 500px;
+            margin: 20px auto;
+            border: 1px solid #ccc;
+        }
+        .lottery-box-gift{
+            background: url("http://www.helloweba.com/demo/guaguaka/p_1.jpg") no-repeat;
+            background-size: cover;
+            width: 640px;
+            height: 320px;
+        }
+    </style>
+    <script type="text/javascript" src="http://t5.zbjimg.com/c/base/jquery.js"></script>
+</head>
+<body class="yahei">
+<div class="main-block">
+    <div class="lottery-block">
+        <div class="lottery-box-gift"></div>
+    </div>
+</div>
+<script>
+
+    function MakeCanvas($parent, bgColor, radius, callback) {
+        try {  //避免日后取消掉callee
+            if (!(this instanceof arguments.callee)) {  //直接MakeCanvas时自动加上new
+                return new arguments.callee($parent, bgColor);
+            }
+        } catch (e) {
+            console.log(e.message);
+        }
+
+        $parent.val || ($parent = $($parent));  //转成JQ对象方便些
+        if ($parent.length > 1) {  //传人一堆对象时，一个个执行构造函数，最终返回生成的对象集合
+            var _arrayObj = [];
+            [].forEach.call($parent, function (item) {
+                _arrayObj.push(new MakeCanvas(item));
+            });
+            return _arrayObj;
+        }
+        if ($parent.css('position') !== 'absolute') {  //让生成的canvas，的父级为相对定位
+            $parent.css('position', 'relative');
+        }
+        var _canvas = document.createElement('canvas');
+        $.extend(this, {
+            parent: $parent,
+            width: $parent.width(),
+            height: $parent.height(),
+            bgColor: bgColor || '#ccc',
+            radius: radius || 20,
+            canvas: _canvas,
+            ctx: _canvas.getContext('2d'),
+            x1: 0,
+            y1: 0,
+            callback: callback || null
+        });
+        this.init();
+    }
+
+    MakeCanvas.prototype = (function () {
+        var isMouseDown = false;  //私有静态变量，保存全局点击状态
+        var selectable = true;
+
+        document.addEventListener('selectstart', function (e) {  //防止选中效果，绑定在document上避免超出可视区后再进入时可选中的
+            !selectable && e.preventDefault();
+        });
+
+        function init() { //创建多个对象时可能会执行多次，此处不能放执行某些全局的操作
+            var _canvas = this.canvas;
+            var _ctx = this.ctx;
+            var _parent = this.parent;
+            _canvas.style.position = 'absolute';
+            _canvas.style.cursor = 'pointer';
+            _canvas.style.zIndex = '99';
+            _canvas.style.left = '0';
+            _canvas.style.transition = 'opacity 1s';
+            _canvas.width = this.width;
+            _canvas.height = this.height;
+            _ctx.fillStyle = this.bgColor;
+            _ctx.fillRect(0, 0, _canvas.width, _canvas.height);
+            _ctx.globalCompositeOperation = "destination-out"; //在已有图像区域再绘制时会clip & clearRect
+            _ctx.lineCap = "round";　　//设置线条两端为圆弧
+            _ctx.lineJoin = "round";　　//设置线条转折为圆弧
+            _ctx.lineWidth = this.radius * 2;
+            _parent.prepend(_canvas);
+            _parent.bind('dragstart', function () {  //避免超出canvas区域时选中拖动导致打开新标签
+                return false;
+            });
+            bindEvents.call(this);
+        }
+
+        function bindEvents() {
+            var _obj = this;
+
+            var _canvas = _obj.canvas;
+            var _ctx = _obj.ctx;
+            var _body = document.body;
+
+            //为了避免event被jQuery包装，还是用原生addEventListener绑定canvas
+            _body.addEventListener('mousedown', function (e) {
+                isMouseDown = true;
+                startOrEnd(e);
+            });
+            _body.addEventListener('touchstart', function (e) {
+                isMouseDown = true;
+                startOrEnd(e);
+            });
+
+            _body.addEventListener('mouseup', function (e) {
+                isMouseDown = false;
+                if(calcPixel()){
+                    _canvas.style.opacity = '0';
+                    _obj.callback && _obj.callback();
+                }
+            });
+            _body.addEventListener('touchend', function (e) {
+                isMouseDown = false;
+            });
+
+            _canvas.addEventListener('mouseenter', function (e) { //重新计算出发点以防止超出边界后再进入时起始点错误
+                if (!isMouseDown) {
+                    return false;
+                }
+                startOrEnd(e);
+            });
+            _canvas.addEventListener('mousedown', function () { //防止选中效果
+                selectable = false;
+            });
+
+            _canvas.addEventListener('mousemove', function (e) {
+                if (!isMouseDown) {
+                    return false;
+                }
+                e.preventDefault();
+                move(e);
+            });
+            _canvas.addEventListener('touchmove', function (e) {
+                if (!isMouseDown) {
+                    return false;
+                }
+                e.preventDefault();
+                move(e);
+            });
+
+            function move(e) {
+                var _x = getPointX.call(_obj, e);
+                var _y = getPointY.call(_obj, e);
+                eraser.apply(_obj, [_ctx, _x, _y, _obj.radius]);
+            }
+
+            function calcPixel() {
+                var _count = 0;
+                var _cvsData = _ctx.getImageData(0,0,_canvas.width,_canvas.height);
+                var _len = _cvsData.width * _cvsData.height;
+                for(var i =0;i<_len;i++){
+                    if(_cvsData.data[4*i+3] === 0){
+                        _count++;
+                    }
+                }
+                return _count*2>_len;
+            }
+
+            function startOrEnd(e) {
+                _obj.x1 = getPointX.call(_obj, e);
+                _obj.y1 = getPointY.call(_obj, e);
+            }
+        }
+
+        function getPointX(e) {
+            var _obj = this;
+            if(e.changedTouches){
+                return e.changedTouches[e.changedTouches.length - 1].clientX - _obj.parent[0].offsetLeft;
+            }
+            else{
+                return e.offsetX ? e.offsetX : e.layerX;
+            }
+        }
+
+        function getPointY(e) {
+            var _obj = this;
+            if(e.changedTouches){
+                return e.changedTouches[e.changedTouches.length - 1].clientY - _obj.parent[0].offsetTop;
+            }
+            else{
+                return e.offsetY ? e.offsetY : e.layerY;
+            }
+        }
+
+        function makeCircle(ctx, x , y) {
+            var _obj = this;
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(x, y, _obj.radius, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        function eraser(ctx, x, y) {
+            var _obj = this;
+            ctx.beginPath();
+            ctx.moveTo(_obj.x1, _obj.y1);
+            ctx.lineTo(x,y);
+            ctx.stroke();
+            _obj.x1 = x;
+            _obj.y1 = y;
+        }
+
+        return {
+            init: init,
+            makeCircle: makeCircle,
+            makeLine: eraser
+        }
+    })();
+
+    new MakeCanvas($('.lottery-box-gift'),null,30,function () {
+        alert('假吧意思的回调一下嘛');
+    });
+
+</script>
+</body>
+</html>
